@@ -36,6 +36,9 @@ export default {
   mounted() {
     this.fetchProduct();
   },
+  watch: {
+    '$route.params.productId': 'fetchProduct'
+  },
   methods: {
     async fetchProduct() {
       const productId = this.$route.params.productId;
