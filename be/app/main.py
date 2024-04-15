@@ -70,6 +70,13 @@ class ProductResponse(BaseModel):
     price: float
     images: List[ImageResponse]
 
+
+class PriceHistoryResponse(BaseModel):
+    id: int
+    product_id: int
+    price: float
+    timestamp: datetime
+
 # Modify the endpoints to handle images
 @app.post("/products/", response_model=ProductResponse)
 async def create_product(product: ProductResponse, db: Session = Depends(get_db)):
@@ -126,7 +133,19 @@ async def update_product_price(product_id: int, new_price: float, db: Session = 
     return product
 
 
-# @app.get("/products/{product_id}/price_history", response_model=List[PriceHistory])
-# async def get_product_price_history(product_id: int, db: Session = Depends(get_db)):
-#     price_history = db.query(PriceHistory).filter(PriceHistory.product_id == product_id).all()
-#     return price_history
+@app.get("/products/{product_id}/price_history", response_model=List[PriceHistoryResponse])
+async def get_product_price_history(product_id: int, db: Session = Depends(get_db)):
+    price_history = db.query(PriceHistory).filter(PriceHistory.product_id == product_id).all()
+    if not price_history:
+        raise HTTPException(status_code=404, detail="Price history not found for this product")
+    return price_history
+
+@app.delete("/products/{product_id}")
+async def delete_product(product_id: int, db: Session = Depends(get_db)):
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    db.delete(product)
+    db.commit()
+    return {"message": "Product deleted successfully"}

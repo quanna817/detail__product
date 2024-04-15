@@ -1,16 +1,19 @@
 <template>
   <Headers msg="Welcome to Your Vue.js App"/>
   <DetailProduct></DetailProduct>
+  <Chart></Chart>
 </template>
 
 <script>
 import Headers from './components/Header.vue'
 import DetailProduct from './components/DetailProduct.vue'
+import Chart from './components/Chart.vue'
 export default {
   name: 'App',
   components: {
     Headers,
-    DetailProduct
+    DetailProduct,
+    Chart
   }
 }
 </script>
