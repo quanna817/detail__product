@@ -1,15 +1,20 @@
 from fastapi.middleware.cors import CORSMiddleware  
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Header, Security
 from sqlalchemy.orm import Session, relationship
 from database import SessionLocal, engine, Base
 from pydantic import BaseModel
 from typing import List
 from datetime import datetime
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from passlib.context import CryptContext
 
 # Define your SQLAlchemy model here
 from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, Text
 
 app = FastAPI()
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+security = HTTPBasic()
 
 app.add_middleware(
     CORSMiddleware,
@@ -26,6 +31,30 @@ def get_db():
         yield db
     finally:
         db.close()
+
+async def get_token_header(token: str = Header(...)):
+    if token != "this_token":
+        raise HTTPException(status_code=400, detail="X-Token header invalid")
+    return token
+
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
+
+async def get_current_user(credentials: HTTPBasicCredentials=Security(security)):
+    username = credentials.username
+    password = credentials.password
+    
+    db = SessionLocal()
+    user = db.query(User).filter(User.username == username).first()
+    db.close()
+
+    # if not user or not verify_password(password, user.password):
+    #     raise HTTPException(
+    #         status_code=401,
+    #         detail="Incorrect username or password",
+    #         headers={"WWW-Authenticate": "Basic"},
+    #     )
+    return user
 
 class PriceHistory(Base):
     __tablename__ = "price_history"
@@ -54,6 +83,13 @@ class Product(Base):
     images = relationship("Image", backref="product")
     price_history = relationship("PriceHistory", backref="product")
 
+
+class User(Base):
+    __tablename__ = 'users'
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True)
+    password = Column(String)
+
 # Ensure our database schema is created
 Base.metadata.create_all(bind=engine)
 
@@ -79,7 +115,7 @@ class PriceHistoryResponse(BaseModel):
 
 # Modify the endpoints to handle images
 @app.post("/products/", response_model=ProductResponse)
-async def create_product(product: ProductResponse, db: Session = Depends(get_db)):
+async def create_product(product: ProductResponse, db: Session = Depends(get_db), token: str = Depends(get_token_header), current_user: User = Depends(get_current_user)):
     db_product = Product(**product.dict(exclude={"images"}))
     db.add(db_product)
     db.commit()
@@ -91,7 +127,7 @@ async def create_product(product: ProductResponse, db: Session = Depends(get_db)
     return db_product
 
 @app.get("/products/", response_model=List[ProductResponse])
-async def get_products(db: Session = Depends(get_db)):
+async def get_products(db: Session = Depends(get_db), token: str = Depends(get_token_header), current_user: User = Depends(get_current_user)):
     products = db.query(Product).all()
     return [
         ProductResponse(
@@ -104,7 +140,7 @@ async def get_products(db: Session = Depends(get_db)):
     ]
 
 @app.get("/products/{product_id}", response_model=ProductResponse)
-async def get_product(product_id: int, db: Session = Depends(get_db)):
+async def get_product(product_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     product = db.query(Product).filter(Product.id == product_id).first()
     if product is None:
         raise HTTPException(status_code=404, detail="Product not found")
@@ -118,7 +154,7 @@ async def get_product(product_id: int, db: Session = Depends(get_db)):
 
 
 @app.put("/products/{product_id}/price", response_model=ProductResponse)
-async def update_product_price(product_id: int, new_price: float, db: Session = Depends(get_db)):
+async def update_product_price(product_id: int, new_price: float, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     product = db.query(Product).filter(Product.id == product_id).first()
     if product is None:
         raise HTTPException(status_code=404, detail="Product not found")
@@ -134,14 +170,14 @@ async def update_product_price(product_id: int, new_price: float, db: Session = 
 
 
 @app.get("/products/{product_id}/price_history", response_model=List[PriceHistoryResponse])
-async def get_product_price_history(product_id: int, db: Session = Depends(get_db)):
+async def get_product_price_history(product_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     price_history = db.query(PriceHistory).filter(PriceHistory.product_id == product_id).all()
     if not price_history:
         raise HTTPException(status_code=404, detail="Price history not found for this product")
     return price_history
 
 @app.delete("/products/{product_id}")
-async def delete_product(product_id: int, db: Session = Depends(get_db)):
+async def delete_product(product_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
